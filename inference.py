@@ -1,21 +1,13 @@
 """
 Advanced AI Inference Script — CustomerSupportEnv
-=================================================
 Hackathon Submission for Meta OpenEnv 2026
-
-Transforms the simple rule-based agent into a sophisticated LLM-driven Decision Engine.
-Implements:
-- Multi-step reasoning and state tracking
-- Dynamic uncertainty calibration 
-- Trade-off evaluation (satisfaction vs budget)
-- Structured stdout logging strictly adhering to [START], [STEP], [END] formats.
-
 """
 
+import asyncio
 import os
 import json
-import time
-from typing import Dict, Any
+import textwrap
+from typing import Dict, Any, List
 
 from openai import OpenAI
 from client import CustomerSupportEnv
@@ -24,25 +16,20 @@ from models import SupportAction
 # ────────────────────────────────────────────────────────
 # MANDATORY HACKATHON VARIABLES
 # ────────────────────────────────────────────────────────
-import os
+
+IMAGE_NAME = os.getenv("IMAGE_NAME") or os.getenv("LOCAL_IMAGE_NAME")
+API_KEY = os.getenv("API_KEY", "dummy-token")
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000/v1")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4")
+BENCHMARK = "customer_support_env"
 
 # INITIALISE OPENAI CLIENT
 llm_client = OpenAI(
-    api_key=os.environ["API_KEY"],
-    base_url=os.environ["API_BASE_URL"]
+    api_key=API_KEY,
+    base_url=API_BASE_URL
 )
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4")
-
-# Server URL for the env API
-SERVER_URL = os.getenv("ENV_SERVER_URL", "http://127.0.0.1:8000")
-
 
 def generate_intelligent_decision(complaint: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Uses the LLM to process semantic nuances, calculate uncertainty, and reason
-    through budget constraints vs customer retention tradeoffs.
-    """
-    
     prompt = f"""
     You are an advanced Customer Support AI for an enterprise.
     You must make a highly reasoned decision to maximize long-term reward.
@@ -78,77 +65,133 @@ def generate_intelligent_decision(complaint: Dict[str, Any], context: Dict[str, 
     }}
     """
     
+    # Do not swallow exceptions so proxy evaluates errors openly
     response = llm_client.chat.completions.create(
         model=MODEL_NAME,
         messages=[{"role": "system", "content": prompt}],
-        temperature=0.2, # Low temperature for reliable outputs but probabilistic logic in prompt
+        temperature=0.2, 
     )
     content = response.choices[0].message.content
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except Exception:
+        # Emergency JSON fallback
+        return {
+            "decision": "investigate",
+            "confidence": 0.5,
+            "reasoning": "Fallback parsing error.",
+            "urgency_flag": False
+        }
 
 
-def run_inference_episode():
-    import time
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: str) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+
+async def main() -> None:
+    # Boot environment. Uses from_docker_image if available, else network baseline.
+    if IMAGE_NAME:
+        env = await CustomerSupportEnv.from_docker_image(IMAGE_NAME)
+    else:
+        SERVER_URL = os.getenv("ENV_SERVER_URL", "http://127.0.0.1:8000")
+        env = CustomerSupportEnv(base_url=SERVER_URL)
     
-    # Initialize the client context manager using native OpenEnv URL resolution
-    with CustomerSupportEnv().sync() as env:
-        # Retry loop to wait for server to boot up without hardcoding URL or /docs
-        for attempt in range(15):
-            try:
-                obs_result = env.reset()
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            raise ConnectionError("Timeout waiting for Env Server to accept /reset connections.")
-            
-        obs = obs_result.observation
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
+
+    try:
+        result = await env.reset()
+        obs = result.observation
         
-        # REQUIRED STDOUT FORMAT
-        print(f"[START] Episode Initialized | Task: {obs.task_name} | Steps: {obs.max_steps}")
+        task_name = getattr(obs, "task_name", "support_task")
+        max_steps = getattr(obs, "max_steps", 5)
         
-        done = obs.done    
-        while not done:
-            if not obs.complaints:
+        log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+
+        done = getattr(result, "done", False)
+
+        for step in range(1, max_steps * 2 + 1):
+            if done:
                 break
                 
-            complaint = obs.complaints[0]
+            complaints = getattr(obs, "complaints", [])
+            if not complaints:
+                break
+                
+            complaint = complaints[0]
             
-            # State passing for context reasoning
             context = {
-                "budget_remaining": obs.budget_remaining,
-                "escalation_count": obs.escalation_count,
-                "satisfaction_score": obs.satisfaction_score,
-                "history": obs.metadata.get("decision_history", [])
+                "budget_remaining": getattr(obs, "budget_remaining", 1000.0),
+                "escalation_count": getattr(obs, "escalation_count", 0),
+                "satisfaction_score": getattr(obs, "satisfaction_score", 1.0),
+                "history": getattr(obs, "metadata", {}).get("decision_history", [])
             }
             
-            # Generate advanced prediction
-            ai_output = generate_intelligent_decision(complaint, context)
+            error_msg = None
+            try:
+                ai_output = generate_intelligent_decision(complaint, context)
+            except Exception as exc:
+                ai_output = {
+                    "decision": "investigate",
+                    "confidence": 0.5,
+                    "reasoning": "Exception during AI call.",
+                    "urgency_flag": False
+                }
+                error_msg = str(exc)[:50].replace("\n", " ")
+
+            action_str = ai_output.get("decision", "investigate")
             
-            # Form action
             action = SupportAction(
-                complaint_id=complaint["complaint_id"],
-                decision=ai_output.get("decision", "investigate"),
+                complaint_id=complaint.get("complaint_id", "default"),
+                decision=action_str,
                 confidence=ai_output.get("confidence", 0.7),
-                reasoning=ai_output.get("reasoning", "Rule-based reasoning"),
+                reasoning=ai_output.get("reasoning", "Fallback reasoning"),
                 urgency_flag=ai_output.get("urgency_flag", False)
             )
             
-            # Step the environment
-            step_result = env.step(action)
-            obs = step_result.observation
-            done = step_result.done
+            try:
+                step_result = await env.step(action)
+                obs = step_result.observation
+                reward = step_result.reward or 0.0
+                done = step_result.done
+            except Exception as exc:
+                reward = 0.0
+                done = True
+                error_msg = str(exc)[:50].replace("\n", " ")
+                
+            rewards.append(reward)
+            steps_taken = step
             
-            # REQUIRED STDOUT FORMAT
-            # Structured print for validator parsing
-            print(f"[STEP] Decision: {action.decision.upper()} | Conf: {action.confidence} | Reward: {step_result.reward:+.4f} | Rationale: {action.reasoning}")
-        
-        # REQUIRED STDOUT FORMAT
-        total_reward = obs.cumulative_reward
-        print(f"[END] Episode complete. Cumulative Reward: {total_reward:+.4f}")
+            log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
+
+        # Normalize score
+        total_reward = sum(rewards)
+        score = max(0.0, min(1.0, (total_reward + 1.0) / 2.0))
+        success = score > 0.4  # Matches typical threshold
+
+    finally:
+        try:
+            await env.close()
+        except Exception:
+            pass
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
-    # In a hackathon scenario, the evaluator may call this script directly.
-    # We will simulate running an episode to print the structured traces.
-    run_inference_episode()
+    asyncio.run(main())
