@@ -13,7 +13,7 @@ env:
   # ────────────────────────────────────────────────────────────────
   # ⚠️ EDIT THIS TO MATCH YOUR HUGGING FACE REPOSITORY
   # ────────────────────────────────────────────────────────────────
-  HF_SPACE_REPO: YOUR_HF_USERNAME/customer-support-env
+  HF_SPACE_REPO: archirajpoot/customer-support-env
   PYTHON_VERSION: "3.11"
 
 jobs:
