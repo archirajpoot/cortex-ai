@@ -247,6 +247,102 @@ def render_env_overview()->str:
     stats="".join(f'<div class="env-stat"><div class="env-stat-val">{v}</div><div class="env-stat-label">{l}</div></div>' for v,l in [("5","Categories"),("3","Task Levels"),("6","Actions"),("7+","Reward Components")])
     return f'<div class="chart-container"><div class="chart-title">🌍 Environment Overview — Sample Complaint Types</div><div class="sc-grid">{cards}</div><div class="env-stats-row">{stats}</div></div>'
 
+# ── NEW: HACKATHON FEATURE 1 — GRADER SCORE ───────────────────────────────────
+def grade_episode(history:list)->float:
+    """Official 0.0–1.0 grader — deterministic & reproducible."""
+    if not history: return 0.0
+    correct=sum(1 for h in history if h.get("correct",False))
+    ratio=correct/len(history)
+    avg_r=sum(h.get("total_reward",0.0) for h in history)/len(history)
+    norm_r=(avg_r+1.0)/2.0
+    return round(max(0.0,min(1.0,ratio*0.6+norm_r*0.4)),4)
+
+TASK_THRESHOLDS={"easy":0.70,"medium":0.55,"hard":0.40}
+
+def render_episode_scorecard(session:dict)->str:
+    history=session.get("history",[])
+    if not history:
+        return '<div class="scorecard-empty">Complete an episode to see your grader score</div>'
+    score=grade_episode(history)
+    level=session.get("task_level","medium")
+    threshold=TASK_THRESHOLDS.get(level,0.55)
+    passed=score>=threshold
+    color="#34C759" if passed else "#FF3B30"
+    verdict="✅ PASS" if passed else "❌ FAIL"
+    pct=int(score*100)
+    correct=sum(1 for h in history if h.get("correct",False))
+    fill_deg=int(score*360)
+    # Circular arc via CSS conic-gradient
+    return f"""<div class="scorecard">
+  <div class="scorecard-title">🎯 Episode Grade Report</div>
+  <div class="scorecard-body">
+    <div class="score-ring" style="background:conic-gradient({color} {fill_deg}deg,rgba(255,255,255,0.06) 0deg);">
+      <div class="score-ring-inner">
+        <div class="score-val" style="color:{color};">{score:.3f}</div>
+        <div class="score-label">/ 1.000</div>
+      </div>
+    </div>
+    <div class="score-details">
+      <div class="score-verdict" style="color:{color};">{verdict}</div>
+      <div class="score-row"><span>Task Level</span><strong style="color:#9B9AF8;text-transform:uppercase;">{level}</strong></div>
+      <div class="score-row"><span>Pass Threshold</span><strong>{threshold}</strong></div>
+      <div class="score-row"><span>Correct Decisions</span><strong style="color:{color};">{correct}/{len(history)}</strong></div>
+      <div class="score-row"><span>Cumulative Reward</span><strong style="color:{'#34C759' if session.get('cumulative_reward',0)>=0 else '#FF3B30'};">{session.get('cumulative_reward',0):+.3f}</strong></div>
+    </div>
+  </div>
+  <div class="score-bar-wrap">
+    <div class="score-bar-track"><div style="width:{pct}%;height:100%;background:linear-gradient(90deg,{color},{color}88);border-radius:4px;transition:width 0.8s ease;"></div></div>
+    <span style="font-size:11px;color:{color};font-weight:700;">{pct}%</span>
+  </div>
+  <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Scoring: 60% decision accuracy + 40% normalised reward</div>
+</div>"""
+
+# ── NEW: HACKATHON FEATURE 2 — BASELINE HINT ─────────────────────────────────
+CAT_PRIORITY_MAP={"billing":{"critical":"refund","high":"refund","medium":"investigate","low":"investigate"},"delivery":{"critical":"refund","high":"investigate","medium":"investigate","low":"apologize"},"quality":{"critical":"replace","high":"replace","medium":"apologize","low":"apologize"},"technical":{"critical":"escalate","high":"investigate","medium":"investigate","low":"apologize"},"policy":{"critical":"escalate","high":"escalate","medium":"apologize","low":"apologize"}}
+SENT_OVERRIDE={"chargeback":"escalate","no response":"escalate","businesses":"escalate","warranty":"investigate","acknowledgment":"apologize"}
+
+def get_baseline_hint(complaint:dict)->str:
+    if not complaint: return ""
+    text=complaint.get("text","").lower(); cat=complaint.get("category","delivery"); pri=complaint.get("priority","medium")
+    clues=[c.lower() for c in complaint.get("context_clues",[])]; tier=complaint.get("customer_tier","regular")
+    decision=None
+    for kw,act in SENT_OVERRIDE.items():
+        if kw in text or any(kw in c for c in clues): decision=act; break
+    if not decision: decision=CAT_PRIORITY_MAP.get(cat,{}).get(pri,"apologize")
+    col=DC.get(decision,"#888"); icon=DI.get(decision,"?")
+    return f"""<div class="baseline-hint">
+  <span class="hint-label">🤖 Baseline Agent Suggests:</span>
+  <span class="hint-action" style="background:{col}22;color:{col};border:1px solid {col}44;">{icon} {decision.upper()}</span>
+  <span class="hint-note">({cat} + {pri} priority{' + VIP' if tier=='vip' else ''})</span>
+</div>"""
+
+# ── NEW: HACKATHON FEATURE 3 — EPISODE LOG ───────────────────────────────────
+def render_episode_log(episodes_log:list)->str:
+    if not episodes_log:
+        return '<div class="chart-container"><div class="chart-title">📝 Episode Score Log</div><div class="chart-placeholder">Complete episodes to build your score history</div></div>'
+    rows="".join(
+        f'<div class="ep-log-row">'
+        f'<span class="ep-num">Ep {i+1}</span>'
+        f'<span class="ep-level" style="color:{"#34C759" if e["level"]=="easy" else "#FF9500" if e["level"]=="medium" else "#FF3B30"}">{e["level"].upper()}</span>'
+        f'<div class="ep-bar-wrap"><div style="width:{int(e["score"]*100)}%;height:100%;background:{"#34C759" if e["passed"] else "#FF3B30"};border-radius:3px;"></div></div>'
+        f'<span class="ep-score" style="color:{"#34C759" if e["passed"] else "#FF3B30"}">{e["score"]:.3f}</span>'
+        f'<span class="ep-verdict">{"PASS" if e["passed"] else "FAIL"}</span>'
+        f'</div>'
+        for i,e in enumerate(episodes_log[-8:])
+    )
+    avg=sum(e["score"] for e in episodes_log)/len(episodes_log)
+    passes=sum(1 for e in episodes_log if e["passed"])
+    return f"""<div class="chart-container">
+  <div class="chart-header-row">
+    <div class="chart-title">📝 Episode Score Log ({len(episodes_log)} episodes)</div>
+    <div style="font-size:11px;color:var(--text-muted);">Avg: <strong style="color:#9B9AF8;">{avg:.3f}</strong> | Pass Rate: <strong style="color:#34C759;">{passes}/{len(episodes_log)}</strong></div>
+  </div>
+  <div style="margin-bottom:8px;font-size:10px;color:var(--text-muted);display:flex;gap:16px;">
+    <span>EP#</span><span style="min-width:60px;">LEVEL</span><span style="flex:1;">SCORE BAR</span><span>SCORE</span><span>RESULT</span>
+  </div>
+  {rows}
+</div>"""
+
 # ── CSS ────────────────────────────────────────────────────────────────────────
 CUSTOM_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
