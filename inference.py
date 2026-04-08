@@ -88,26 +88,20 @@ def generate_intelligent_decision(complaint: Dict[str, Any], context: Dict[str, 
 
 
 def run_inference_episode():
-    import requests
     import time
     
-    # Wait for the OpenEnv server to boot up
-    for attempt in range(15):
-        try:
-            # Pinging /docs since /health is not natively attached to create_fastapi_app
-            r = requests.get(f"{SERVER_URL}/docs", timeout=3)
-            # The server is up if we can get a response without a ConnectionError
-            print(f"[START] Server ready at {SERVER_URL}")
-            break
-        except Exception:
-            pass
-        time.sleep(2)
-    else:
-        raise ConnectionError("Timeout waiting for Env Server to start.")
-
-    # Initialize the client context manager
-    with CustomerSupportEnv(base_url=SERVER_URL).sync() as env:
-        obs_result = env.reset()
+    # Initialize the client context manager using native OpenEnv URL resolution
+    with CustomerSupportEnv().sync() as env:
+        # Retry loop to wait for server to boot up without hardcoding URL or /docs
+        for attempt in range(15):
+            try:
+                obs_result = env.reset()
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            raise ConnectionError("Timeout waiting for Env Server to accept /reset connections.")
+            
         obs = obs_result.observation
         
         # REQUIRED STDOUT FORMAT
