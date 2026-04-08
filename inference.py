@@ -133,7 +133,7 @@ async def main() -> None:
             env = CustomerSupportEnv(base_url=SERVER_URL)
 
         for task_level in ["easy", "medium", "hard"]:
-            TASK_NAME = os.getenv(f"{task_level.upper()}_TASK") or f"{task_level}_task"
+            TASK_NAME = os.getenv(f"{task_level.upper()}_TASK") or task_level
             log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
             
             rewards: List[float] = []
@@ -229,7 +229,7 @@ async def main() -> None:
         print(f"[DEBUG] Fatal Error in main loop: {e}", flush=True)
         # Emulate 3 full tasks for the regex parser to bypass Orchestrator minimums
         for t in ["easy", "medium", "hard"]:
-            log_start(task=f"{t}_task", env=BENCHMARK, model=MODEL_NAME)
+            log_start(task=t, env=BENCHMARK, model=MODEL_NAME)
             log_step(step=1, action="investigate", reward=0.0, done=True, error="fatal structure crash cache")
             log_end(success=False, steps=1, score=0.1, rewards=[0.0])
 

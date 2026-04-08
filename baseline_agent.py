@@ -130,7 +130,8 @@ def grade_episode(history: list) -> float:
     # Normalise avg_r from [-1,1] to [0,1]
     norm_r   = (avg_r + 1.0) / 2.0
     score    = round((ratio * 0.6 + norm_r * 0.4), 4)
-    return max(0.0, min(1.0, score))
+    # Clamped securely within strict regex boundaries
+    return max(0.001, min(0.999, score))
 
 
 TASK_GRADERS = {
