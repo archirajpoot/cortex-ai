@@ -109,6 +109,9 @@ async def main() -> None:
     success = False
     env = None
 
+    TASK_NAME = os.getenv("TASK_NAME", "support_task")
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
     try:
         # Boot environment inside the trap so Docker launch exceptions are gracefully handled
         if IMAGE_NAME:
@@ -123,7 +126,8 @@ async def main() -> None:
             try:
                 result = await env.reset()
                 break
-            except Exception:
+            except Exception as e:
+                print(f"[DEBUG] reset() attempt {attempt} failed: {e}", flush=True)
                 await asyncio.sleep(2)
                 
         if result is None:
@@ -132,11 +136,7 @@ async def main() -> None:
             return
             
         obs = result.observation
-        
-        task_name = getattr(obs, "task_name", "support_task")
         max_steps = getattr(obs, "max_steps", 5)
-        
-        log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
         done = getattr(result, "done", False)
 
