@@ -133,6 +133,7 @@ async def main() -> None:
         if result is None:
             # Reached end of loop without successfully connecting
             print("[DEBUG] Timeout connecting to Env after 30 seconds.", flush=True)
+            log_step(step=1, action="investigate", reward=0.0, done=True, error="timeout dummy step")
             return
             
         obs = result.observation
@@ -201,6 +202,7 @@ async def main() -> None:
         
     except Exception as e:
         print(f"[DEBUG] Fatal Error in main loop: {e}", flush=True)
+        log_step(step=1, action="investigate", reward=0.0, done=True, error="fatal structural crash")
 
     finally:
         try:
