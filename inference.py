@@ -132,97 +132,112 @@ async def main() -> None:
             SERVER_URL = os.getenv("ENV_SERVER_URL", "http://127.0.0.1:8000")
             env = CustomerSupportEnv(base_url=SERVER_URL)
 
-        # Robust Retry Loop for startup race conditions
-        result = None
-        for attempt in range(15):
-            try:
-                result = await env.reset()
-                break
-            except Exception as e:
-                print(f"[DEBUG] reset() attempt {attempt} failed: {e}", flush=True)
-                await asyncio.sleep(2)
-                
-        if result is None:
-            # Reached end of loop without successfully connecting
-            print("[DEBUG] Timeout connecting to Env after 30 seconds.", flush=True)
-            log_step(step=1, action="investigate", reward=0.0, done=True, error="timeout dummy step")
-            return
+        for task_level in ["easy", "medium", "hard"]:
+            TASK_NAME = os.getenv(f"{task_level.upper()}_TASK") or f"{task_level}_task"
+            log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
             
-        obs = result.observation
-        max_steps = getattr(obs, "max_steps", 5)
+            rewards: List[float] = []
+            steps_taken = 0
+            score = 0.001
+            success = False
 
-        done = getattr(result, "done", False)
+            # Robust Retry Loop for startup race conditions
+            result = None
+            for attempt in range(15):
+                try:
+                    result = await env.reset()
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        print(f"[DEBUG] reset() failed: {e}", flush=True)
+                    await asyncio.sleep(2)
+                    
+            if result is None:
+                # Reached end of loop without successfully connecting
+                print(f"[DEBUG] Timeout connecting to Env on {task_level} after 30 seconds.", flush=True)
+                log_step(step=1, action="investigate", reward=0.0, done=True, error="timeout dummy step")
+                log_end(success=False, steps=1, score=0.001, rewards=[0.0])
+                continue
+                
+            obs = result.observation
+            max_steps = getattr(obs, "max_steps", 5)
 
-        for step in range(1, max_steps * 2 + 1):
-            if done:
-                break
+            done = getattr(result, "done", False)
+
+            for step in range(1, max_steps * 2 + 1):
+                if done:
+                    break
+                    
+                complaints = getattr(obs, "complaints", [])
+                if not complaints:
+                    break
+                    
+                complaint = complaints[0]
                 
-            complaints = getattr(obs, "complaints", [])
-            if not complaints:
-                break
-                
-            complaint = complaints[0]
-            
-            context = {
-                "budget_remaining": getattr(obs, "budget_remaining", 1000.0),
-                "escalation_count": getattr(obs, "escalation_count", 0),
-                "satisfaction_score": getattr(obs, "satisfaction_score", 1.0),
-                "history": getattr(obs, "metadata", {}).get("decision_history", [])
-            }
-            
-            error_msg = None
-            try:
-                ai_output = generate_intelligent_decision(complaint, context)
-            except Exception as exc:
-                ai_output = {
-                    "decision": "investigate",
-                    "confidence": 0.5,
-                    "reasoning": "Exception during AI call.",
-                    "urgency_flag": False
+                context = {
+                    "budget_remaining": getattr(obs, "budget_remaining", 1000.0),
+                    "escalation_count": getattr(obs, "escalation_count", 0),
+                    "satisfaction_score": getattr(obs, "satisfaction_score", 1.0),
+                    "history": getattr(obs, "metadata", {}).get("decision_history", [])
                 }
-                error_msg = str(exc)[:50].replace("\n", " ")
-
-            action_str = ai_output.get("decision", "investigate")
-            
-            action = SupportAction(
-                complaint_id=complaint.get("complaint_id", "default"),
-                decision=action_str,
-                confidence=ai_output.get("confidence", 0.7),
-                reasoning=ai_output.get("reasoning", "Fallback reasoning"),
-                urgency_flag=ai_output.get("urgency_flag", False)
-            )
-            
-            try:
-                step_result = await env.step(action)
-                obs = step_result.observation
-                reward = step_result.reward or 0.0
-                done = step_result.done
-            except Exception as exc:
-                reward = 0.0
-                done = True
-                error_msg = str(exc)[:50].replace("\n", " ")
                 
-            rewards.append(reward)
-            steps_taken = step
-            
-            log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
+                error_msg = None
+                try:
+                    ai_output = generate_intelligent_decision(complaint, context)
+                except Exception as exc:
+                    ai_output = {
+                        "decision": "investigate",
+                        "confidence": 0.5,
+                        "reasoning": "Exception during AI call.",
+                        "urgency_flag": False
+                    }
+                    error_msg = str(exc)[:50].replace("\n", " ")
 
-        # Normalize score securely within strict grader boundaries (0.001 - 0.999)
-        total_reward = sum(rewards)
-        score = max(0.001, min(0.999, (total_reward + 1.0) / 2.0))
-        success = score > 0.4  # Matches typical threshold
-        
+                action_str = ai_output.get("decision", "investigate")
+                
+                action = SupportAction(
+                    complaint_id=complaint.get("complaint_id", "default"),
+                    decision=action_str,
+                    confidence=ai_output.get("confidence", 0.7),
+                    reasoning=ai_output.get("reasoning", "Fallback reasoning"),
+                    urgency_flag=ai_output.get("urgency_flag", False)
+                )
+                
+                try:
+                    step_result = await env.step(action)
+                    obs = step_result.observation
+                    reward = step_result.reward or 0.0
+                    done = step_result.done
+                except Exception as exc:
+                    reward = 0.0
+                    done = True
+                    error_msg = str(exc)[:50].replace("\n", " ")
+                    
+                rewards.append(reward)
+                steps_taken = step
+                
+                log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
+
+            # Normalize score securely within strict grader boundaries (0.001 - 0.999)
+            total_reward = sum(rewards)
+            score = max(0.001, min(0.999, (total_reward + 1.0) / 2.0))
+            success = score > 0.4  # Matches typical threshold
+            
+            log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
     except Exception as e:
         print(f"[DEBUG] Fatal Error in main loop: {e}", flush=True)
+        # Only inject a dummy if we haven't successfully processed tasks yet
+        log_start(task="fallback_task", env=BENCHMARK, model=MODEL_NAME)
         log_step(step=1, action="investigate", reward=0.0, done=True, error="fatal structural crash")
-        score = 0.001
+        log_end(success=False, steps=1, score=0.001, rewards=[0.0])
 
     finally:
         try:
-            await env.close()
+            if env:
+                await env.close()
         except Exception:
             pass
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
