@@ -179,13 +179,13 @@ jobs:
           SPACE_URL="https://${HF_SPACE_REPO/\//-}.hf.space"
           echo "Checking deployment health at: $SPACE_URL"
 
-          # Poll the /health endpoint for up to 3 minutes
-          for i in $(seq 1 18); do
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          # Poll the /health endpoint for up to 10 minutes
+          for i in $(seq 1 60); do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
                    -H "Authorization: Bearer $HF_TOKEN" \
                    "${SPACE_URL}/health" 2>/dev/null || echo "000")
             
-            echo "Attempt $i/18: HTTP $HTTP_STATUS"
+            echo "Attempt $i/60: HTTP $HTTP_STATUS"
             
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "🚀 Application is live and healthy on Hugging Face Spaces!"
