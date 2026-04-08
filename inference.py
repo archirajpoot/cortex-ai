@@ -88,6 +88,21 @@ def generate_intelligent_decision(complaint: Dict[str, Any], context: Dict[str, 
 
 
 def run_inference_episode():
+    import requests
+    import time
+    
+    # Wait for the OpenEnv server to boot up
+    for attempt in range(15):
+        try:
+            if requests.get(f"{SERVER_URL}/health", timeout=3).status_code == 200:
+                print(f"[START] Server ready at {SERVER_URL}")
+                break
+        except Exception:
+            pass
+        time.sleep(2)
+    else:
+        raise ConnectionError("Timeout waiting for Env Server to start.")
+
     # Initialize the client context manager
     with CustomerSupportEnv(base_url=SERVER_URL).sync() as env:
         obs_result = env.reset()
