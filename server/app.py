@@ -12,7 +12,7 @@ Endpoints:
 """
 
 try:
-    from openenv.core.env_server.http_server import create_app
+    from openenv.core.env_server.http_server import create_fastapi_app
 except Exception as e:
     raise ImportError(
         "openenv is required.  Install with: uv sync"
@@ -31,7 +31,7 @@ except (ImportError, ModuleNotFoundError):
         from models import SupportAction, SupportObservation
         from server.customer_support_environment import CustomerSupportEnvironment
 
-app = create_app(
+app = create_fastapi_app(
     CustomerSupportEnvironment,
     SupportAction,
     SupportObservation,
