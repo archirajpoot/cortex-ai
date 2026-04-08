@@ -26,6 +26,8 @@ llm_client = OpenAI(
 )
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 BENCHMARK = "customer_support_env"
+
+def generate_intelligent_decision(complaint: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     prompt = f"""
     You are an advanced Customer Support AI for an enterprise.
     You must make a highly reasoned decision to maximize long-term reward.
