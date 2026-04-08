@@ -26,12 +26,12 @@ from models import SupportAction
 # ────────────────────────────────────────────────────────
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:7860/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4")
-HF_TOKEN     = os.getenv("HF_TOKEN", "dummy-token")
+API_KEY      = os.getenv("API_KEY", "dummy-token")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "")
 
 # INITIALISE OPENAI CLIENT
 llm_client = OpenAI(
-    api_key=HF_TOKEN,
+    api_key=API_KEY,
     base_url=API_BASE_URL
 )
 
