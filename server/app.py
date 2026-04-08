@@ -35,7 +35,6 @@ app = create_fastapi_app(
     CustomerSupportEnvironment,
     SupportAction,
     SupportObservation,
-    env_name="customer_support_env",
     max_concurrent_envs=4,
 )
 
