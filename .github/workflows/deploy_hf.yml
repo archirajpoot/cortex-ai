@@ -127,7 +127,7 @@ jobs:
       - name: Verify Single-Port Deployment Entrypoint
         run: |
           test -f run.py || (echo "❌ run.py missing" && exit 1)
-          grep -q \"mount_gradio_app\" run.py || (echo "❌ UI mounting logic missing in run.py" && exit 1)
+          grep -q "mount_gradio_app" run.py || (echo "❌ UI mounting logic missing in run.py" && exit 1)
           echo "✅ run.py correctly implements merged API/UI server"
 
   # ── 4. DEPLOY TO HUGGING FACE SPACES ────────────────────────────
